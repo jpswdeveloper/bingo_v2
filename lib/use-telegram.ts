@@ -109,15 +109,15 @@ export function useTelegramWebApp() {
   const [webApp, setWebApp] = useState<TelegramWebApp | null>(null);
   const [user, setUser] = useState<TelegramUser | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [version, setVersion] = useState<number>(6.0);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
 
     if (!tg) {
-      // No SDK — running in a browser directly (dev or preview)
       if (process.env.NODE_ENV === 'development') {
         setUser({
-          telegramId: '348453405', // teda_ted (dev account)
+          telegramId: '348453405',
           firstName: 'Tedy',
           lastName: undefined,
           username: 'teda_ted',
@@ -127,13 +127,13 @@ export function useTelegramWebApp() {
       return;
     }
 
-    // Initialize the WebApp
     tg.ready();
     tg.expand();
 
-    // Extract user from initDataUnsafe
-    const tgUser = tg.initDataUnsafe?.user;
+    const parsedVersion = parseFloat(tg.version ?? '6.0');
+    setVersion(isNaN(parsedVersion) ? 6.0 : parsedVersion);
 
+    const tgUser = tg.initDataUnsafe?.user;
     if (tgUser) {
       setUser({
         telegramId: tgUser.id.toString(),
@@ -144,28 +144,46 @@ export function useTelegramWebApp() {
         isPremium: tgUser.is_premium,
         photoUrl: tgUser.photo_url,
       });
-    } else {
-      // SDK present but opened in browser — use dev mock
-      if (process.env.NODE_ENV === 'development') {
-        setUser({
-          telegramId: '348453405', // teda_ted from DB
-          firstName: 'Tedy',
-          username: 'teda_ted',
-        });
-      }
+    } else if (process.env.NODE_ENV === 'development') {
+      setUser({ telegramId: '348453405', firstName: 'Tedy', username: 'teda_ted' });
     }
 
     setWebApp(tg);
     setIsReady(true);
   }, []);
 
+  /**
+   * Safe wrapper for showAlert — falls back to console.log for Telegram
+   * versions that don't support showPopup (< 6.2).
+   */
+  const safeShowAlert = (message: string, callback?: () => void) => {
+    if (!webApp) { callback?.(); return; }
+    try {
+      if (version >= 6.2) {
+        webApp.showAlert(message, callback);
+      } else {
+        // showAlert unsupported — silently skip the native popup.
+        // The in-app overlay (game over / winner) will show the info instead.
+        console.log('[Telegram] showAlert (suppressed, version', version, '):', message);
+        callback?.();
+      }
+    } catch {
+      console.log('[Telegram] showAlert failed silently:', message);
+      callback?.();
+    }
+  };
+
   return {
     webApp,
     user,
     isReady,
-    // Shortcuts
-    showAlert: (message: string, callback?: () => void) => webApp?.showAlert(message, callback),
-    showConfirm: (message: string, callback?: (ok: boolean) => void) => webApp?.showConfirm(message, callback),
+    version,
+    showAlert: safeShowAlert,
+    showConfirm: (message: string, callback?: (ok: boolean) => void) => {
+      if (!webApp) { callback?.(false); return; }
+      try { webApp.showConfirm(message, callback); }
+      catch { console.log('[Telegram] showConfirm failed:', message); callback?.(false); }
+    },
     close: () => webApp?.close(),
     haptic: webApp?.HapticFeedback,
     mainButton: webApp?.MainButton,

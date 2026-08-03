@@ -115,13 +115,21 @@ export default function PickCardPage() {
       gameState.countdownStartedAt
     ) {
       const interval = setInterval(() => {
-        setTimeLeft(secondsRemaining(gameState.countdownStartedAt!, gameState.countdownSeconds));
+        const remaining = secondsRemaining(gameState.countdownStartedAt!, gameState.countdownSeconds);
+        setTimeLeft(remaining);
+
+        // When countdown hits zero and user bought cards, go to game room.
+        // The DRAWING phase transition may not have polled yet — route proactively.
+        if (remaining === 0 && myTickets.length > 0 && gameState.gameId) {
+          clearInterval(interval);
+          router.replace(`/game/${gameState.gameId}`);
+        }
       }, 1000);
       return () => clearInterval(interval);
     } else {
       setTimeLeft(null);
     }
-  }, [gameState?.phase, gameState?.countdownStartedAt, gameState?.countdownSeconds]);
+  }, [gameState?.phase, gameState?.countdownStartedAt, gameState?.countdownSeconds, gameState?.gameId, myTickets.length, router]);
 
   // All 600 cards filtered by search
   const allCards = useMemo(() => {
@@ -173,17 +181,16 @@ export default function PickCardPage() {
     try {
       await ticketApi.buyTicketBatch(user.telegramId, selected);
 
-      // Force-refetch so the game page gets fresh ticket data immediately
+      // Force-refetch so tickets are fresh immediately
       await queryClient.refetchQueries({ queryKey: ['tickets', 'mine'] });
       await queryClient.invalidateQueries({ queryKey: ['user', 'profile'] });
       await queryClient.invalidateQueries({ queryKey: ['tickets', 'available'] });
 
       webApp?.HapticFeedback?.notificationOccurred('success');
       setSuccess(true);
-
-      // Immediately route to game page — don't wait, the game page handles
-      // showing the "loading cards" state gracefully.
-      router.replace(`/game/${gameState.gameId}`);
+      setSelected([]);
+      // Do NOT navigate yet — stay on this page and show the countdown.
+      // The redirect guard below will route to /game once phase becomes DRAWING.
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ?? err?.message ?? 'Failed to buy card.';
@@ -327,8 +334,12 @@ export default function PickCardPage() {
         <div className="mx-4 mt-4 flex items-center gap-3 bg-green-500/10 border border-green-500/20 rounded-xl p-4">
           <CheckCircle2 className="w-5 h-5 text-green-400 shrink-0" />
           <div>
-            <p className="text-green-400 font-semibold text-sm">{selected.length} card(s) purchased successfully!</p>
-            <p className="text-green-300/70 text-xs">Taking you to the game...</p>
+            <p className="text-green-400 font-semibold text-sm">Cards purchased! Waiting for game to start...</p>
+            <p className="text-green-300/70 text-xs">
+              {timeLeft !== null && timeLeft > 0
+                ? `Game starts in ${timeLeft}s`
+                : 'Starting now...'}
+            </p>
           </div>
         </div>
       )}
@@ -372,7 +383,7 @@ export default function PickCardPage() {
             return (
               <button
                 key={num}
-                disabled={sold || buying || success}
+                disabled={sold || buying || success || gameState.phase === GamePhase.COUNTDOWN}
                 onClick={() => handleSelect(num)}
                 onContextMenu={(e) => {
                   e.preventDefault();
