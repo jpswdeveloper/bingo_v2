@@ -197,3 +197,44 @@ export const cardApi = {
 };
 
 export default apiClient;
+
+// ─────────────────────────────────────────────────────────────
+// Cashout APIs
+// ─────────────────────────────────────────────────────────────
+export const cashoutApi = {
+  request: async (telegramId: string, amount: number, phoneNumber: string) => {
+    const { data } = await apiClient.post('/cashout/request', { telegramId, amount, phoneNumber });
+    return data;
+  },
+  getMine: async (telegramId: string) => {
+    const { data } = await apiClient.get('/cashout/mine', { params: { telegramId } });
+    return data;
+  },
+  // Admin
+  getAll: async (status?: string) => {
+    const { data } = await apiClient.get('/cashout', { params: status ? { status } : {} });
+    return data;
+  },
+  approve: async (id: string, adminNote?: string) => {
+    const { data } = await apiClient.patch(`/cashout/${id}/approve`, { adminNote });
+    return data;
+  },
+  reject: async (id: string, adminNote?: string) => {
+    const { data } = await apiClient.patch(`/cashout/${id}/reject`, { adminNote });
+    return data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+// Settings APIs
+// ─────────────────────────────────────────────────────────────
+export const settingsApi = {
+  getRakeTiers: async () => {
+    const { data } = await apiClient.get('/settings/rake-tiers');
+    return data as { rakeTiers: import('./types').RakeTier[] };
+  },
+  updateRakeTiers: async (rakeTiers: import('./types').RakeTier[]) => {
+    const { data } = await apiClient.put('/settings/rake-tiers', { rakeTiers });
+    return data as { rakeTiers: import('./types').RakeTier[] };
+  },
+};

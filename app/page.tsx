@@ -23,7 +23,7 @@ export default function Home() {
   const isNavigating = useRef(false); // prevent auto-redirect while handleJoin is routing
 
   const { user, isReady: telegramReady } = useTelegramWebApp();
-  const { data: gameState, isLoading: gameLoading } = useActiveGame();
+  const { data: gameState, isLoading: gameLoading, refetch: refetchGame } = useActiveGame();
   const { data: myTicket, isLoading: myTicketLoading } = useMyTicket(user?.telegramId ?? null);
   const { data: userProfile } = useUserProfile(user?.telegramId ?? null);
 
@@ -74,14 +74,16 @@ export default function Home() {
     if (joinLock.current || joiningStake) return;
     joinLock.current = true;
 
+    // Always refetch game state before routing so we're not working off stale cache
+    const freshResult = await refetchGame();
+    const freshState = freshResult.data;
+
     // If there's an active game in a non-selectable phase, route directly
-    if (gameState && gameState.phase !== GamePhase.CARD_SELECTION) {
-      console.log('[Home] Active game already in phase:', gameState.phase, '— routing directly');
+    if (freshState && freshState.phase !== GamePhase.CARD_SELECTION && freshState.phase !== GamePhase.GAME_OVER) {
       joinLock.current = false;
-      if (gameState.phase === GamePhase.GAME_OVER) return;
       const cardParam = myTicket ? `?card=${myTicket.cardNumber}` : "";
       isNavigating.current = true;
-      router.push(`/game/${gameState.gameId}${cardParam}`);
+      router.push(`/game/${freshState.gameId}${cardParam}`);
       return;
     }
 

@@ -121,7 +121,8 @@ export interface UserProfile {
   lastName?: string;
   username?: string;
   phoneNumber?: string;
-  walletBalance: number;
+  walletBalance: number;   // game balance — used to buy tickets
+  mainWallet: number;      // winnings wallet — used for cashouts
   isVerified: boolean;
   isBlocked: boolean;
   referralCode: string;
@@ -143,4 +144,30 @@ export interface BuyTicketResponse {
     pricePaid: number;
     telegramId: string;
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cashout
+// ─────────────────────────────────────────────────────────────
+export type CashoutStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface CashoutRequest {
+  _id: string;
+  telegramId: string;
+  amount: number;
+  phoneNumber: string;
+  status: CashoutStatus;
+  adminNote: string | null;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  createdAt: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Settings — rake tiers
+// ─────────────────────────────────────────────────────────────
+export interface RakeTier {
+  minCards: number;
+  maxCards: number;
+  rakePct: number;
 }

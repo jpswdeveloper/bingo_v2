@@ -14,22 +14,30 @@ const client = axios.create({
 // Types
 // ─────────────────────────────────────────────────────────────
 
+export type GamePhase = 'CARD_SELECTION' | 'COUNTDOWN' | 'DRAWING' | 'GAME_OVER';
+export type WinPattern = 'ROW' | 'COLUMN' | 'DIAGONAL' | 'FULL_HOUSE';
+
 export interface AdminGame {
-  id: string;
-  code: string;
-  phase: 'CARD_SELECTION' | 'COUNTDOWN' | 'DRAWING' | 'GAME_OVER';
+  gameId: string;
+  gameCode: string;
+  phase: GamePhase;
   ticketPrice: number;
+  winPattern: WinPattern;
   soldCount: number;
+  soldCardNumbers: number[];
   drawnNumbers: number[];
-  createdAt: string;
-  winner?: { userId: string; username: string; cardNumber: number };
+  currentDraw: number | null;
+  countdownSeconds: number;
+  countdownStartedAt: number | null;
+  drawIntervalSeconds: number;
 }
 
 export interface CreateGameParams {
   ticketPrice: number;
-  maxPlayers?: number;
-  drawIntervalSeconds: number;
+  purchasingSeconds?: number;
   countdownSeconds?: number;
+  drawIntervalSeconds?: number;
+  winPattern?: WinPattern;
 }
 
 export interface AnalyticsOverview {
@@ -52,51 +60,70 @@ export const adminApi = {
       const { data } = await client.get<AnalyticsOverview>('/admin/analytics/overview');
       return data;
     } catch {
-      // Fallback so dashboard doesn't crash when endpoint not ready
-      return {
-        totalRevenue: 0,
-        totalUsers: 0,
-        totalGames: 0,
-        averageTicketPrice: 0,
-        revenueGrowth: 0,
-        userGrowth: 0,
-      };
+      return { totalRevenue: 0, totalUsers: 0, totalGames: 0, averageTicketPrice: 0, revenueGrowth: 0, userGrowth: 0 };
     }
   },
 
   // ── Games ──────────────────────────────────────────────────
-  getGames: async (params?: { limit?: number; phase?: string }): Promise<AdminGame[]> => {
+
+  /** GET /games/active — the single active game */
+  getActiveGame: async (): Promise<AdminGame | null> => {
     try {
-      const { data } = await client.get<AdminGame[]>('/admin/games', { params });
+      const { data } = await client.get<AdminGame | { message: string }>('/games/active');
+      if ('message' in data) return null;
+      const g = data as AdminGame;
+      g.soldCount = g.soldCardNumbers?.length ?? 0;
+      return g;
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /games/history?limit=20&skip=0 */
+  getGameHistory: async (limit = 20, skip = 0): Promise<AdminGame[]> => {
+    try {
+      const { data } = await client.get<AdminGame[]>('/games/history', { params: { limit, skip } });
       return data;
     } catch {
       return [];
     }
   },
 
+  /** POST /games — create and immediately start purchasing phase */
   createGame: async (params: CreateGameParams): Promise<AdminGame> => {
     const { data } = await client.post<AdminGame>('/games', params);
     return data;
   },
 
+  /** POST /games/:id/countdown — CARD_SELECTION → COUNTDOWN */
+  startCountdown: async (gameId: string): Promise<void> => {
+    await client.post(`/games/${gameId}/countdown`);
+  },
+
+  /** POST /games/:id/draw — COUNTDOWN → DRAWING (skips remaining countdown) */
+  startDrawing: async (gameId: string): Promise<void> => {
+    await client.post(`/games/${gameId}/draw`);
+  },
+
+  /** POST /games/:id/end — force-end the game */
+  endGame: async (gameId: string): Promise<void> => {
+    await client.post(`/games/${gameId}/end`);
+  },
+
+  // Aliases for legacy admin page calls
+  getGames: async (params?: { limit?: number }): Promise<AdminGame[]> => {
+    return adminApi.getGameHistory(params?.limit ?? 20);
+  },
   changeGamePhase: async (gameId: string, phase: string): Promise<void> => {
-    const phaseToEndpoint: Record<string, string> = {
-      COUNTDOWN: `/games/${gameId}/countdown`,
-      DRAWING:   `/games/${gameId}/draw`,
-      GAME_OVER: `/games/${gameId}/end`,
-    };
-    const url = phaseToEndpoint[phase];
-    if (!url) throw new Error(`Unknown phase transition: ${phase}`);
-    await client.post(url);
+    if (phase === 'COUNTDOWN') return adminApi.startCountdown(gameId);
+    if (phase === 'DRAWING')   return adminApi.startDrawing(gameId);
+    return adminApi.endGame(gameId);
   },
-
-  manualDraw: async (gameId: string, number?: number): Promise<void> => {
-    // The BE auto-draws on its own schedule; manual draw triggers the next one immediately.
-    await client.post(`/games/${gameId}/draw`, number !== undefined ? { number } : {});
+  manualDraw: async (gameId: string, _number?: number): Promise<void> => {
+    await adminApi.startDrawing(gameId);
   },
-
-  declareWinner: async (gameId: string, cardNumber: number): Promise<void> => {
-    await client.post(`/games/${gameId}/end`, { cardNumber });
+  declareWinner: async (gameId: string, _cardNumber: number): Promise<void> => {
+    await adminApi.endGame(gameId);
   },
 
   // ── Tickets ────────────────────────────────────────────────
@@ -106,14 +133,10 @@ export const adminApi = {
 
   // ── Users ──────────────────────────────────────────────────
   toggleUserBlock: async (telegramId: string, block: boolean): Promise<void> => {
-    await client.patch(`/users/block`, { telegramId, block });
+    await client.patch('/users/block', { telegramId, block });
   },
 
-  updateUserBalance: async (
-    telegramId: string,
-    amount: number,
-    operation: 'add' | 'subtract' | 'set',
-  ): Promise<void> => {
-    await client.patch(`/users/balance`, { telegramId, amount, operation });
+  updateUserBalance: async (telegramId: string, amount: number, operation: 'add' | 'subtract' | 'set'): Promise<void> => {
+    await client.patch('/users/balance', { telegramId, amount, operation });
   },
 };

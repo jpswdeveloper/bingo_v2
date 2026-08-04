@@ -62,10 +62,16 @@ export default function PickCardPage() {
   const IS_DEV = process.env.NODE_ENV === 'development';
   const [showDebugPopup, setShowDebugPopup] = useState(false);
 
-  const { data: gameState, isLoading: gameLoading } = useActiveGame();
+  const { data: gameState, isLoading: gameLoading, refetch: refetchGame } = useActiveGame();
   const { data: availData, isLoading: availLoading, refetch: refetchAvail } = useAvailableCards(true);
   const { data: userProfile, isLoading: profileLoading } = useUserProfile(user?.telegramId ?? null);
   const { data: myTickets = [], isLoading: myTicketsLoading } = useMyTickets(user?.telegramId ?? null);
+
+  // Force a fresh fetch immediately on mount so we never show stale null
+  useEffect(() => {
+    refetchGame();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [selected, setSelected] = useState<number[]>([]);
   const [previewCard, setPreviewCard] = useState<number | null>(null);
@@ -203,7 +209,9 @@ export default function PickCardPage() {
   };
 
   // ── Loading state ─────────────────────────────────────────────
-  if (gameLoading || availLoading || profileLoading) {
+  // Show spinner while any data is loading OR while game state hasn't
+  // resolved yet (brief window after navigation before first poll returns)
+  if (gameLoading || availLoading || profileLoading || (!gameState && !gameLoading)) {
     return (
       <div className="min-h-screen bg-[#0b080d] flex flex-col items-center justify-center gap-4">
         <Loader2 className="w-10 h-10 text-purple-400 animate-spin" />
@@ -213,12 +221,12 @@ export default function PickCardPage() {
   }
 
   if (!gameState) {
+    // If we get here, game genuinely doesn't exist — redirect home silently
+    router.replace('/');
     return (
-      <div className="min-h-screen bg-[#0b080d] flex flex-col items-center justify-center gap-4 px-6 text-center">
-        <span className="text-5xl">🎲</span>
-        <p className="text-white font-bold text-lg">No active game right now.</p>
-        <p className="text-gray-400 text-sm">Check back soon — a new game starts shortly.</p>
-        <Link href="/" className="text-purple-400 underline text-sm">Back to Lobby</Link>
+      <div className="min-h-screen bg-[#0b080d] flex flex-col items-center justify-center gap-4">
+        <Loader2 className="w-10 h-10 text-purple-400 animate-spin" />
+        <p className="text-gray-400 text-sm">Redirecting...</p>
       </div>
     );
   }
